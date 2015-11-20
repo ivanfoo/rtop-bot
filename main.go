@@ -28,201 +28,90 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
-	"time"
 
-	"github.com/daneharrigan/hipchat"
-	"github.com/nlopes/slack"
+	"github.com/ivanfoo/rtop-bot/bot"
 )
 
 const (
-	VERSION = "0.2"
+	VERSION = "0.3"
 )
-
-var sshUsername, idRsaPath string
-var hcFlag = flag.Bool("h", false, "create HipChat bot")
-var slackFlag = flag.Bool("s", false, "create Slack bot")
-var currentUser *user.User
 
 //----------------------------------------------------------------------------
 
 func usage() {
 	fmt.Printf(
 		`rtop-bot %s - (c) 2015 RapidLoop - http://www.rtop-monitor.org/rtop-bot
-rtop-bot is a Slack and HipChat bot that can do remote system monitoring over SSH
+rtop-bot is a Slack bot that can do remote system monitoring over SSH
 
 Usage:
-    rtop-bot -s slackBotToken
-    rtop-bot -h hipChatUserJid hipChatRoomJid
+    rtop-bot -s slackBotToken [-u user] [-i identity_file]
 
 where:
-    slackBotToken is the API token for the Slack bot
-    hipChatuserJid is the HipChat user jabber ID, like 139999_999914
-    hipChatRoomJid is the HipChat room jabber ID, like 139999_opschat
+    -s slackBotToken is the API token for the Slack bot
+    -u user
+    -i identity_file
 `, VERSION)
 	os.Exit(1)
 }
 
 func main() {
+	var SlackToken = flag.String("s", "", "create Slack bot")
+	var Username = flag.String("u", "", "ssh user to use")
+	var SSHKeyPath = flag.String("i", "", "private key to use")
 
 	flag.Parse()
 
-	if (!*hcFlag && !*slackFlag) || (*hcFlag && *slackFlag) ||
-		(*hcFlag && len(os.Args) != 4) || (*slackFlag && len(os.Args) != 3) {
+	if *SlackToken == "" {
 		usage()
 	}
 
-	log.SetPrefix("rtop-bot: ")
-	log.SetFlags(0)
+	bot := bot.NewBot(bot.BotOptions{
+		Username:   *Username,
+		SSHKeyPath: *SSHKeyPath,
+		SlackToken: *SlackToken,
+	})
 
-	// get default username for SSH connections
-	var err error
-	if currentUser, err = user.Current(); err != nil {
-		log.Print(err)
-		os.Exit(1)
-	}
-	sshUsername = currentUser.Username
+	bot.DoSlack()
+	/*
+				if *slackFlag == "" {
+					usage()
+				}
+		SlackToken
+				log.SetPrefix("rtop-bot: ")
+				log.SetFlags(0)
 
-	// expand ~/.ssh/id_rsa and check if it exists
-	idRsaPath = filepath.Join(currentUser.HomeDir, ".ssh", "id_rsa")
-	if _, err := os.Stat(idRsaPath); os.IsNotExist(err) {
-		idRsaPath = ""
-	}
+				// get username for SSH connections
+				if *userFlag != "" {
+					sysUser, err = user.Lookup(*userFlag)
+				} else {
+					sysUser, err = user.Current()
+				}
 
-	// expand ~/.ssh/config and parse if it exists
-	sshConfig := filepath.Join(currentUser.HomeDir, ".ssh", "config")
-	if _, err := os.Stat(sshConfig); err == nil {
-		parseSshConfig(sshConfig)
-	}
+				if err != nil {
+					log.Print(err)
+					os.Exit(1)
+				}
 
-	if *hcFlag {
-		doHipChat(os.Args[2], os.Args[3])
-	} else {
-		doSlack(os.Args[2])
-	}
-}
+				sshUsername = sysUser.Username
 
-func doSlack(apiToken string) {
-	api := slack.New(apiToken)
-	rtm := api.NewRTM()
-	go rtm.ManageConnection()
+				// expand ~/.ssh/id_rsa and check if it exists
+				if *keyFlag != "" {
+					idRsaPath = *keyFlag
+				} else {
+					idRsaPath = filepath.Join(sysUser.HomeDir, ".ssh", "id_rsa")
+				}
 
-	mention := ""
-	for msg := range rtm.IncomingEvents {
-		switch ev := msg.Data.(type) {
-		case *slack.ConnectedEvent:
-			mention = "<@" + ev.Info.User.ID + ">"
-			if ev.ConnectionCount == 1 {
-				log.Printf("bot [%s] ready", ev.Info.User.Name)
-				log.Print("hit ^C to exit")
-			} else {
-				log.Printf("bot [%s] reconnected", ev.Info.User.Name)
-			}
-		case *slack.MessageEvent:
-			if strings.HasPrefix(ev.Msg.Text, mention) {
-				t := strings.TrimPrefix(ev.Msg.Text, mention)
-				go func(text, ch string) {
-					r := process(text)
-					rtm.SendMessage(rtm.NewOutgoingMessage(r, ch))
-				}(t, ev.Msg.Channel)
-			}
-		case *slack.InvalidAuthEvent:
-			log.Print("bad Slack API token")
-			os.Exit(1)
-		}
-	}
-}
+				if _, err := os.Stat(idRsaPath); os.IsNotExist(err) {
+					idRsaPath = ""
+				}
 
-func doHipChat(username, roomjid string) {
-	if strings.HasSuffix(username, "@chat.hipchat.com") {
-		username = strings.Replace(username, "@chat.hipchat.com", "", 1)
-	}
-	if !strings.HasSuffix(roomjid, "@conf.hipchat.com") {
-		roomjid += "@conf.hipchat.com"
-	}
-	pass, err := getpass("Password for user \"" + username + "\": ")
-	if err != nil {
-		log.Print(err)
-	}
+				// expand ~/.ssh/config and parse if it exists
+				sshConfig := filepath.Join(sysUser.HomeDir, ".ssh", "config")
+				if _, err := os.Stat(sshConfig); err == nil {
+					parseSshConfig(sshConfig)
+				}
 
-	client, err := hipchat.NewClient(username, pass, "bot")
-	if err != nil {
-		log.Print(err)
-		os.Exit(1)
-	}
-
-	nick, mname := getUserInfo(client, username)
-
-	client.Status("chat")
-	client.Join(roomjid, nick)
-	log.Printf("[%s] now serving room [%s]", nick, roomjid)
-	log.Print("hit ^C to exit")
-
-	go client.KeepAlive()
-	for message := range client.Messages() {
-		if strings.HasPrefix(message.Body, "@"+mname) {
-			go client.Say(roomjid, nick, process(message.Body))
-		}
-	}
-}
-
-func getUserInfo(client *hipchat.Client, id string) (string, string) {
-	id = id + "@chat.hipchat.com"
-	client.RequestUsers()
-	select {
-	case users := <-client.Users():
-		for _, user := range users {
-			if user.Id == id {
-				log.Printf("using username [%s] and mention name [%s]",
-					user.Name, user.MentionName)
-				return user.Name, user.MentionName
-			}
-		}
-	case <-time.After(10 * time.Second):
-		log.Print("timed out waiting for user list")
-		os.Exit(1)
-	}
-	return "rtop-bot", "rtop-bot"
-}
-
-func process(request string) string {
-
-	parts := strings.Fields(request)
-	if len(parts) != 3 || parts[1] != "status" {
-		return "say \"status <hostname>\" to see vital stats of <hostname>"
-	}
-
-	parts[2] = cleanHostname(parts[2])
-	address, user, keypath := getSshEntryOrDefault(parts[2])
-	client, err := sshConnect(user, address, keypath)
-	if err != nil {
-		return fmt.Sprintf("[%s]: %v", parts[2], err)
-	}
-
-	stats := Stats{}
-	getAllStats(client, &stats)
-	result := fmt.Sprintf(
-		`[%s] up %s, load %s %s %s, procs %s running of %s total
-[%s] mem: %s of %s free, swap %s of %s free
-`,
-		stats.Hostname, fmtUptime(&stats), stats.Load1, stats.Load5,
-		stats.Load10, stats.RunningProcs, stats.TotalProcs,
-		stats.Hostname, fmtBytes(stats.MemFree), fmtBytes(stats.MemTotal),
-		fmtBytes(stats.SwapFree), fmtBytes(stats.SwapTotal),
-	)
-	if len(stats.FSInfos) > 0 {
-		for _, fs := range stats.FSInfos {
-			result += fmt.Sprintf("[%s] fs %s: %s of %s free\n",
-				stats.Hostname,
-				fs.MountPoint,
-				fmtBytes(fs.Free),
-				fmtBytes(fs.Used+fs.Free),
-			)
-		}
-	}
-	return result
+				bot.doSlack(*slackFlag)
+	*/
 }

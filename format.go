@@ -23,14 +23,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+// +build ignore
+
 package main
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/ivanfoo/rtop-bot/commands"
 )
 
-func fmtUptime(stats *Stats) string {
+func fmtUptime(stats *commands.Stats) string {
 	dur := stats.Uptime
 	dur = dur - (dur % time.Second)
 	var days int

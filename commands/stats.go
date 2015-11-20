@@ -23,14 +23,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-package main
+package commands
 
 import (
 	"bufio"
-	"golang.org/x/crypto/ssh"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ivanfoo/rtop-bot/utils"
+	"golang.org/x/crypto/ssh"
 )
 
 type FSInfo struct {
@@ -65,7 +67,7 @@ func getAllStats(client *ssh.Client, stats *Stats) {
 }
 
 func getUptime(client *ssh.Client, stats *Stats) (err error) {
-	uptime, err := runCommand(client, "/bin/cat /proc/uptime")
+	uptime, err := utils.RunCommand(client, "/bin/cat /proc/uptime")
 	if err != nil {
 		return
 	}
@@ -84,7 +86,7 @@ func getUptime(client *ssh.Client, stats *Stats) (err error) {
 }
 
 func getHostname(client *ssh.Client, stats *Stats) (err error) {
-	hostname, err := runCommand(client, "/bin/hostname -f")
+	hostname, err := utils.RunCommand(client, "/bin/hostname -f")
 	if err != nil {
 		return
 	}
@@ -94,7 +96,7 @@ func getHostname(client *ssh.Client, stats *Stats) (err error) {
 }
 
 func getLoad(client *ssh.Client, stats *Stats) (err error) {
-	line, err := runCommand(client, "/bin/cat /proc/loadavg")
+	line, err := utils.RunCommand(client, "/bin/cat /proc/loadavg")
 	if err != nil {
 		return
 	}
@@ -116,7 +118,7 @@ func getLoad(client *ssh.Client, stats *Stats) (err error) {
 }
 
 func getMemInfo(client *ssh.Client, stats *Stats) (err error) {
-	lines, err := runCommand(client, "/bin/cat /proc/meminfo")
+	lines, err := utils.RunCommand(client, "/bin/cat /proc/meminfo")
 	if err != nil {
 		return
 	}
@@ -152,7 +154,7 @@ func getMemInfo(client *ssh.Client, stats *Stats) (err error) {
 }
 
 func getFSInfo(client *ssh.Client, stats *Stats) (err error) {
-	lines, err := runCommand(client, "/bin/df -B1")
+	lines, err := utils.RunCommand(client, "/bin/df -B1")
 	if err != nil {
 		return
 	}
